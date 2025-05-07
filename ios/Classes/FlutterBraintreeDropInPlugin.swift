@@ -31,8 +31,6 @@ func makePaymentSummaryItems(from: Dictionary<String, Any>) -> [PKPaymentSummary
 
 public class FlutterBraintreeDropInPlugin: BaseFlutterBraintreePlugin, FlutterPlugin, BTThreeDSecureRequestDelegate {
     
-
-    
     private var completionBlock: FlutterResult!
     private var applePayInfo = [String : Any]()
     private var authorization: String!
@@ -48,117 +46,153 @@ public class FlutterBraintreeDropInPlugin: BaseFlutterBraintreePlugin, FlutterPl
         registrar.addMethodCallDelegate(instance, channel: channel)
     }
     
+    
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         completionBlock = result
-        
+
         if call.method == "start" {
-            print("PRESENTING DROP IN UI")
+            print("✅ [Braintree] Starting Drop-In flow...")
+
             guard !isHandlingResult else {
+                print("⚠️ [Braintree] Drop-In already presented, aborting.")
                 returnAlreadyOpenError(result: result)
                 return
             }
-            
+
             isHandlingResult = true
-            
+
             let threeDSecureRequest = BTThreeDSecureRequest()
+            print("✅ [Braintree] Initialized 3D Secure request.")
 
             if let email = string(for: "email", in: call) {
                 threeDSecureRequest.email = email
+                print("📧 [Braintree] Email set for 3DS: \(email)")
             }
             threeDSecureRequest.versionRequested = .version2
 
             if let billingAddress = dict(for: "billingAddress", in: call) {
+                print("📦 [Braintree] Billing address received: \(billingAddress)")
                 let address = BTThreeDSecurePostalAddress()
-                address.givenName = billingAddress["givenName"] as? String;
-                address.surname = billingAddress["surname"] as? String;
-                address.phoneNumber = billingAddress["phoneNumber"] as? String;
-                address.streetAddress = billingAddress["streetAddress"] as? String;
-                address.extendedAddress = billingAddress["extendedAddress"] as? String;
-                address.locality = billingAddress["locality"] as? String;
-                address.region = billingAddress["region"] as? String;
-                address.postalCode = billingAddress["postalCode"] as? String;
-                address.countryCodeAlpha2 = billingAddress["countryCodeAlpha2"] as? String;
+                address.givenName = billingAddress["givenName"] as? String
+                address.surname = billingAddress["surname"] as? String
+                address.phoneNumber = billingAddress["phoneNumber"] as? String
+                address.streetAddress = billingAddress["streetAddress"] as? String
+                address.extendedAddress = billingAddress["extendedAddress"] as? String
+                address.locality = billingAddress["locality"] as? String
+                address.region = billingAddress["region"] as? String
+                address.postalCode = billingAddress["postalCode"] as? String
+                address.countryCodeAlpha2 = billingAddress["countryCodeAlpha2"] as? String
+
+                print("📦 [Braintree] Parsed billing address: \(address)")
+
                 threeDSecureRequest.billingAddress = address
 
-                // Optional additional information.
-                // For best results, provide as many of these elements as possible.
                 let info = BTThreeDSecureAdditionalInformation()
                 info.shippingAddress = address
                 threeDSecureRequest.additionalInformation = info
+            } else {
+                print("⚠️ [Braintree] No billing address provided.")
             }
-            
+
             let dropInRequest = BTDropInRequest()
-            
+
             if let amount = string(for: "amount", in: call) {
                 threeDSecureRequest.threeDSecureRequestDelegate = self
                 threeDSecureRequest.amount = NSDecimalNumber(string: amount)
                 dropInRequest.threeDSecureRequest = threeDSecureRequest
+                print("💰 [Braintree] Amount set for 3DS: \(amount)")
+            } else {
+                print("❌ [Braintree] Missing 'amount' in request.")
             }
 
             var deviceData: String?
             if let collectDeviceData = bool(for: "collectDeviceData", in: call), collectDeviceData {
                 deviceData = PPDataCollector.collectPayPalDeviceData()
+                print("📲 [Braintree] Collected device data.")
             }
-            
+
             if let vaultManagerEnabled = bool(for: "vaultManagerEnabled", in: call) {
                 dropInRequest.vaultManager = vaultManagerEnabled
+                print("🔐 [Braintree] Vault manager enabled: \(vaultManagerEnabled)")
             }
-            
+
             if let cardEnabled = bool(for: "cardEnabled", in: call) {
                 dropInRequest.cardDisabled = !cardEnabled
+                print("💳 [Braintree] Card enabled: \(cardEnabled)")
             }
 
             if let paypalEnabled = bool(for: "paypalEnabled", in: call) {
                 dropInRequest.paypalDisabled = !paypalEnabled
+                print("🅿️ [Braintree] PayPal enabled: \(paypalEnabled)")
             }
 
             if let paypalInfo = dict(for: "paypalRequest", in: call) {
+                print("🅿️ [Braintree] PayPal info received.")
                 if let amount = paypalInfo["amount"] as? String {
                     let paypalRequest = BTPayPalCheckoutRequest(amount: amount)
                     paypalRequest.currencyCode = paypalInfo["currencyCode"] as? String
                     paypalRequest.displayName = paypalInfo["displayName"] as? String
                     paypalRequest.billingAgreementDescription = paypalInfo["billingAgreementDescription"] as? String
                     dropInRequest.payPalRequest = paypalRequest
+                    print("🅿️ [Braintree] Set up BTPayPalCheckoutRequest.")
                 } else {
                     let paypalRequest = BTPayPalVaultRequest()
                     paypalRequest.displayName = paypalInfo["displayName"] as? String
                     paypalRequest.billingAgreementDescription = paypalInfo["billingAgreementDescription"] as? String
                     dropInRequest.payPalRequest = paypalRequest
+                    print("🅿️ [Braintree] Set up BTPayPalVaultRequest.")
                 }
             } else {
                 dropInRequest.paypalDisabled = true
+                print("❌ [Braintree] PayPal request disabled.")
             }
-            
+
             if let applePayInfo = dict(for: "applePayRequest", in: call) {
                 self.applePayInfo = applePayInfo
+                print("🍎 [Braintree] Apple Pay request received.")
             } else {
                 dropInRequest.applePayDisabled = true
+                print("🍎 [Braintree] Apple Pay disabled.")
             }
-            
+
             guard let authorization = getAuthorization(call: call) else {
+                print("❌ [Braintree] Authorization missing.")
                 returnAuthorizationMissingError(result: result)
                 isHandlingResult = false
                 return
             }
-            
+
             self.authorization = authorization
-            
+            print("🔑 [Braintree] Authorization obtained.")
+
             let dropInController = BTDropInController(authorization: authorization, request: dropInRequest) { (controller, braintreeResult, error) in
+                print("📥 [Braintree] DropInController completed.")
                 controller.dismiss(animated: true, completion: nil)
-                
+
+                if let error = error {
+                    print("❌ [Braintree] Error in DropInController: \(error.localizedDescription)")
+                } else if let result = braintreeResult {
+                    print("✅ [Braintree] DropInResult received: \(result)")
+                } else {
+                    print("⚠️ [Braintree] DropInResult is nil.")
+                }
+
                 self.handleResult(result: braintreeResult, error: error, flutterResult: result, deviceData: deviceData)
                 self.isHandlingResult = false
             }
-            
+
             guard let existingDropInController = dropInController else {
-                result(FlutterError(code: "braintree_error", message: "BTDropInController not initialized (no API key or request specified?)", details: nil))
+                print("❌ [Braintree] BTDropInController not initialized.")
+                result(FlutterError(code: "braintree_error", message: "BTDropInController not initialized", details: nil))
                 isHandlingResult = false
                 return
             }
-                
+
+            print("🎬 [Braintree] Presenting DropInController...")
             UIApplication.shared.keyWindow?.rootViewController?.present(existingDropInController, animated: true, completion: nil)
         }
     }
+
     
     private func setupApplePay(flutterResult: FlutterResult) {
         let paymentRequest = PKPaymentRequest()

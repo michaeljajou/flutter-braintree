@@ -52,6 +52,7 @@ public class FlutterBraintreeDropInPlugin: BaseFlutterBraintreePlugin, FlutterPl
         completionBlock = result
         
         if call.method == "start" {
+            print("PRESENTING DROP IN UI")
             guard !isHandlingResult else {
                 returnAlreadyOpenError(result: result)
                 return
